@@ -6,6 +6,7 @@ import java.util.Iterator;
 import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.util.viewer.field.ListingColors;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.listing.Function;
@@ -25,106 +26,138 @@ public final class PCodeUtils {
 		throw new UnsupportedOperationException();
 	}
 
-	public static String rawPCodeString(Program p, Function f, boolean pretty, boolean showSeq) {
+	public static void writeRawPCode(Program p, Function f, boolean pretty, boolean showSeq,
+			StyledWriter writer) {
 		Language lang = pretty ? p.getLanguage() : null;
-		StringBuilder sb = new StringBuilder();
 		AddressSetView body = f.getBody();
 		InstructionIterator instrIter = p.getListing().getInstructions(body, true);
 		while (instrIter.hasNext()) {
 			Instruction i = instrIter.next();
 			for (PcodeOp op : i.getPcode()) {
-				String prefix = formatPrefix(i.getAddressString(false, true), op, showSeq);
-				String opStr = formatOp(op, lang, p, pretty, false);
-				sb.append(prefix).append(":\t").append(opStr).append("\n");
+				writePrefix(i.getAddressString(false, true), op, showSeq, writer);
+				writer.append(":\t");
+				writeOp(op, lang, p, pretty, false, writer);
+				writer.append("\n");
 			}
 		}
-		return sb.toString();
 	}
 
-public static String highPCodeBlockString(Function f, DecompInterface decompIfc,
-			boolean pretty, boolean showSsa, boolean showSeq) {
+	public static void writeHighPCodeBlocks(Function f, DecompInterface decompIfc,
+			boolean pretty, boolean showSsa, boolean showSeq, StyledWriter writer) {
 		DecompileResults results = decompIfc.decompileFunction(
 			f, DecompileOptions.SUGGESTED_DECOMPILE_TIMEOUT_SECS, TaskMonitor.DUMMY);
 		if (!results.decompileCompleted()) {
-			return "Decompilation failed: " + results.getErrorMessage();
+			writer.append("Decompilation failed: " + results.getErrorMessage());
+			return;
 		}
 		HighFunction highFunc = results.getHighFunction();
 		if (highFunc == null) {
-			return "No high function available.";
+			writer.append("No high function available.");
+			return;
 		}
 		Language lang = pretty ? highFunc.getLanguage() : null;
 		Program p = pretty ? f.getProgram() : null;
-		StringBuilder sb = new StringBuilder();
 		ArrayList<PcodeBlockBasic> blocks = highFunc.getBasicBlocks();
 		for (PcodeBlockBasic block : blocks) {
-			sb.append(blockLabel(block)).append("\n");
-			Iterator<PcodeOp> ops = block.getIterator();
-			while (ops.hasNext()) {
-				PcodeOp op = ops.next();
-				String baseAddr = op.getSeqnum().getTarget().toString();
-				String prefix = formatPrefix(baseAddr, op, showSeq);
-				String opStr = formatOp(op, lang, p, pretty, showSsa);
-				sb.append(prefix).append(":\t").append(opStr).append("\n");
-			}
+			writeBlockLabel(block, writer);
+			writer.append("\n");
+			writeBlockPCode(block, lang, p, pretty, showSsa, showSeq, writer);
 			int outSize = block.getOutSize();
 			if (outSize == 1) {
-				sb.append("U: ").append(blockLabel(block.getOut(0))).append("\n");
+				writer.append("U: ", ListingColors.MnemonicColors.NORMAL);
+				writeBlockLabel(block.getOut(0), writer);
+				writer.append("\n");
 			}
 			else if (outSize == 2) {
-				sb.append("T: ").append(blockLabel(block.getTrueOut())).append("\n");
-				sb.append("F: ").append(blockLabel(block.getFalseOut())).append("\n");
+				writer.append("T: ", ListingColors.MnemonicColors.NORMAL);
+				writeBlockLabel(block.getTrueOut(), writer);
+				writer.append("\n");
+				writer.append("F: ", ListingColors.MnemonicColors.NORMAL);
+				writeBlockLabel(block.getFalseOut(), writer);
+				writer.append("\n");
 			}
-			sb.append("\n");
+			writer.append("\n");
 		}
-		return sb.toString();
 	}
 
-	private static String blockLabel(PcodeBlock block) {
-		return "block_" + Long.toHexString(block.getStart().getOffset()) + ":";
+	public static void writeBlockPCode(PcodeBlockBasic block, Language lang, Program p,
+			boolean pretty, boolean showSsa, boolean showSeq, StyledWriter writer) {
+		Iterator<PcodeOp> ops = block.getIterator();
+		while (ops.hasNext()) {
+			PcodeOp op = ops.next();
+			writePrefix(op.getSeqnum().getTarget().toString(), op, showSeq, writer);
+			writer.append(":\t");
+			writeOp(op, lang, p, pretty, showSsa, writer);
+			writer.append("\n");
+		}
 	}
 
-	private static String formatPrefix(String baseAddr, PcodeOp op, boolean showSeq) {
-		if (!showSeq) {
-			return baseAddr;
-		}
-		return String.format("%s: %5s: %2s", baseAddr,
-			"0x" + Integer.toHexString(op.getSeqnum().getTime()),
-			op.getSeqnum().getOrder());
+	private static void writeBlockLabel(PcodeBlock block, StyledWriter writer) {
+		writer.append("block_" + Long.toHexString(block.getStart().getOffset()) + ":",
+			ListingColors.PcodeColors.LABEL);
 	}
 
-	private static String formatOp(PcodeOp op, Language lang, Program p,
-			boolean pretty, boolean showSsa) {
-		if (!pretty && !showSsa) {
-			return op.toString();
+	private static void writePrefix(String baseAddr, PcodeOp op, boolean showSeq,
+			StyledWriter writer) {
+		writer.append(baseAddr, ListingColors.ADDRESS);
+		if (showSeq) {
+			writer.append(String.format(": %5s: %2s",
+				"0x" + Integer.toHexString(op.getSeqnum().getTime()),
+				op.getSeqnum().getOrder()));
 		}
+	}
+
+	private static void writeOp(PcodeOp op, Language lang, Program p,
+			boolean pretty, boolean showSsa, StyledWriter writer) {
 		Varnode output = op.getOutput();
-		String outStr = output != null ? formatVarnode(output, lang, pretty, showSsa) : "---";
-
-		StringBuilder sb = new StringBuilder();
-		sb.append(outStr).append(" ").append(op.getMnemonic());
+		if (output != null) {
+			writeVarnode(output, lang, pretty, showSsa, writer);
+		}
+		else {
+			writer.append("---");
+		}
+		writer.append(" ");
+		writer.append(op.getMnemonic(), ListingColors.MnemonicColors.NORMAL);
 
 		Varnode[] inputs = op.getInputs();
 		for (int i = 0; i < inputs.length; i++) {
-			sb.append(" ");
+			writer.append(" ");
 			if (inputs[i] == null) {
-				sb.append("---");
+				writer.append("---");
 			}
-			else if (i == 0 && pretty && op.getOpcode() == PcodeOp.CALL && inputs[i].isAddress()) {
+			else if (i == 0 && pretty && op.getOpcode() == PcodeOp.CALL &&
+					inputs[i].isAddress()) {
 				Function callee = p.getFunctionManager().getFunctionAt(inputs[i].getAddress());
-				sb.append(callee != null ? callee.getName() : formatVarnode(inputs[i], lang, pretty, showSsa));
+				if (callee != null) {
+					writer.append(callee.getName(), ListingColors.FunctionColors.NAME);
+				}
+				else {
+					writeVarnode(inputs[i], lang, pretty, showSsa, writer);
+				}
 			}
 			else {
-				sb.append(formatVarnode(inputs[i], lang, pretty, showSsa));
+				writeVarnode(inputs[i], lang, pretty, showSsa, writer);
 			}
 		}
-		return sb.toString();
 	}
 
-	private static String formatVarnode(Varnode v, Language lang, boolean pretty, boolean showSsa) {
-		String base = pretty ? v.toString(lang) : v.toString();
-		if (showSsa && !v.isConstant() && v instanceof VarnodeAST) {
-			base += "_" + ((VarnodeAST) v).getUniqueId();
+	private static void writeVarnode(Varnode v, Language lang, boolean pretty, boolean showSsa,
+			StyledWriter writer) {
+		String text = pretty ? v.toString(lang) : v.toString();
+		if (v.isRegister()) {
+			writer.append(text, ListingColors.REGISTER);
 		}
-		return base;
+		else if (v.isConstant()) {
+			writer.append(text, ListingColors.CONSTANT);
+		}
+		else if (v.isAddress()) {
+			writer.append(text, ListingColors.ADDRESS);
+		}
+		else {
+			writer.append(text, ListingColors.PcodeColors.VARNODE);
+		}
+		if (showSsa && !v.isConstant() && v instanceof VarnodeAST) {
+			writer.append("_" + ((VarnodeAST) v).getUniqueId());
+		}
 	}
 }

@@ -41,10 +41,11 @@ public class PCodeViewerPlugin extends ProgramPlugin {
 	public static final String PLUGIN_NAME = "PCodeViewer";
 
 	PCodeProvider provider;
+	PCodeGraphProvider graphProvider;
 
 	/**
 	 * PCodeViewerPlugin constructor.
-	 * 
+	 *
 	 * @param tool The plugin tool that this plugin is added to.
 	 */
 	public PCodeViewerPlugin(PluginTool tool) {
@@ -52,6 +53,7 @@ public class PCodeViewerPlugin extends ProgramPlugin {
 
 		String pluginName = getName();
 		provider = new PCodeProvider(this, pluginName);
+		graphProvider = new PCodeGraphProvider(this, pluginName);
 
 		// TODO: Customize help (or remove if help is not desired)
 		String topicName = this.getClass().getPackage().getName();
@@ -69,11 +71,13 @@ public class PCodeViewerPlugin extends ProgramPlugin {
 	@Override
 	protected void programDeactivated(Program program) {
 		provider.clear();
+		graphProvider.clear();
 	}
-	
+
 	@Override
 	protected void locationChanged(ProgramLocation loc) {
 		provider.locationChanged(currentProgram, loc);
+		graphProvider.locationChanged(currentProgram, loc);
 	}
 
 }
