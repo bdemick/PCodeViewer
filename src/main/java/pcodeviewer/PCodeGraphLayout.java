@@ -6,7 +6,6 @@ import edu.uci.ics.jung.graph.Graph;
 import ghidra.graph.VisualGraph;
 import ghidra.graph.viewer.layout.AbstractVisualGraphLayout;
 import ghidra.graph.viewer.layout.GridLocationMap;
-import ghidra.graph.viewer.layout.VisualGraphLayout;
 import ghidra.util.exception.CancelledException;
 
 public class PCodeGraphLayout extends AbstractVisualGraphLayout<PCodeVertex, PCodeEdge> {

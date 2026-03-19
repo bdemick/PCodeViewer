@@ -12,13 +12,14 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
+import javax.swing.JTextPane;
 import javax.swing.JToggleButton;
 
 import docking.ActionContext;
 import docking.WindowPosition;
 import docking.action.DockingAction;
 import docking.action.ToolBarData;
+import generic.theme.Gui;
 import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.framework.options.ToolOptions;
@@ -37,7 +38,7 @@ public class PCodeProvider extends ComponentProviderAdapter {
 		{ "decompile", "normalize", "firstpass", "register", "paramid" };
 
 	private JPanel panel;
-	private JTextArea textArea;
+	private JTextPane textPane;
 	private JRadioButton rawButton;
 	private JRadioButton highButton;
 	private JComboBox<String> styleCombo;
@@ -109,12 +110,18 @@ public class PCodeProvider extends ComponentProviderAdapter {
 		controlPanel.add(ssaButton);
 		controlPanel.add(seqButton);
 
-		textArea = new JTextArea(40, 80);
-		textArea.setEditable(false);
-		textArea.append("PCode Viewer: Set the current location inside a function to view its PCode");
+		textPane = new JTextPane();
+		textPane.setEditable(false);
+		Gui.registerFont(textPane, "font.listing.base");
+		StyledWriter writer = new StyledWriter(textPane.getStyledDocument());
+		writer.append("PCode Viewer: Set the current location inside a function to view its PCode");
+
+		// Wrap in a no-wrap panel so long lines scroll horizontally
+		JPanel noWrapPanel = new JPanel(new BorderLayout());
+		noWrapPanel.add(textPane);
 
 		panel.add(controlPanel, BorderLayout.NORTH);
-		panel.add(new JScrollPane(textArea), BorderLayout.CENTER);
+		panel.add(new JScrollPane(noWrapPanel), BorderLayout.CENTER);
 	}
 
 	private void createActions() {
@@ -164,27 +171,32 @@ public class PCodeProvider extends ComponentProviderAdapter {
 		return decompIfc;
 	}
 
-	private String getPcode(Function f) {
+	private void generatePcode(Function f, StyledWriter writer) {
 		boolean pretty = prettyButton.isSelected();
 		boolean showSsa = ssaButton.isSelected();
 		boolean showSeq = seqButton.isSelected();
 		if (highButton.isSelected()) {
-			return PCodeUtils.highPCodeBlockString(f, getDecompInterface(), pretty, showSsa, showSeq);
+			PCodeUtils.writeHighPCodeBlocks(f, getDecompInterface(), pretty, showSsa, showSeq, writer);
 		}
-		return PCodeUtils.rawPCodeString(currentProgram, f, pretty, showSeq);
+		else {
+			PCodeUtils.writeRawPCode(currentProgram, f, pretty, showSeq, writer);
+		}
 	}
 
 	private void updatePanel() {
 		if (currentProgram == null || currentLocation == null) {
 			return;
 		}
+		StyledWriter writer = new StyledWriter(textPane.getStyledDocument());
+		writer.clear();
 		Function func = currentProgram.getListing().getFunctionContaining(currentLocation.getAddress());
 		if (func != null) {
-			textArea.setText(getPcode(func));
-			textArea.setCaretPosition(0);
+			generatePcode(func, writer);
+			textPane.setCaretPosition(0);
 		}
 		else {
-			textArea.setText("Address " + currentLocation.getAddress().toString() + " is not contained in a function.");
+			writer.append("Address " + currentLocation.getAddress().toString() +
+				" is not contained in a function.");
 		}
 	}
 
@@ -199,7 +211,7 @@ public class PCodeProvider extends ComponentProviderAdapter {
 	public void clear() {
 		currentProgram = null;
 		currentLocation = null;
-		textArea.setText("");
+		new StyledWriter(textPane.getStyledDocument()).clear();
 		if (decompIfc != null) {
 			decompIfc.dispose();
 			decompIfc = null;
